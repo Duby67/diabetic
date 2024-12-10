@@ -1,4 +1,5 @@
-# Import essential libreries
+# Import essential libre
+import cv2 as cv
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -237,18 +238,47 @@ def train_val(model, params, verbose=False):
         
     return model, loss_history, metric_history
 
+
 # Define object of the Train, Validation, and Test dataset.
 dir_path = os.getcwd()
-train_set = torchvision.datasets.ImageFolder(dir_path + "/Source/train", transform=transform) 
+train_set = torchvision.datasets.ImageFolder(dir_path + "/2/Source/train", transform=transform) 
 train_set.transform
-val_set = torchvision.datasets.ImageFolder(dir_path + "/Source/valid", transform=transform)
+val_set = torchvision.datasets.ImageFolder(dir_path + "/2/Source/valid", transform=transform)
 val_set.transform
+test_set = torchvision.datasets.ImageFolder(dir_path + "/2/Source/test", transform=transform)
+test_set.transform
+
+
+
+
+# Visualizing some images from Trainset
+CLA_label = {
+        0 : 'DR',
+        1 : 'No_DR',
+}
+figure = plt.figure(figsize=(10, 10))
+cols, rows = 4, 4
+for i in range(1, cols * rows + 1):
+    sample_idx = torch.randint(len(train_set), size=(1,)).item()
+    img, label = train_set[sample_idx]
+    figure.add_subplot(rows, cols, i)
+    plt.title(CLA_label[label])
+    plt.axis("off")
+    img_np = img.numpy().transpose((1, 2, 0))
+    # Clip pixel values to [0, 1]
+    img_valid_range = np.clip(img_np, 0, 1)
+    plt.imshow(img_valid_range)
+    plt.suptitle('Retinopathy Images', y=0.95)
+plt.show()
+
+
 
 # Import and load Train, Validation and Test set
 batch_size = 64
 
 train_loader = torch.utils.data.DataLoader(train_set, batch_size = batch_size, shuffle = True)
 val_loader = torch.utils.data.DataLoader(val_set, batch_size = batch_size, shuffle = True)
+test_loader = torch.utils.data.DataLoader(test_set, batch_size = batch_size, shuffle = True)
 
 # Print shape of Dataset
 for key, value in {'Training data': train_loader, "Validation data": val_loader}.items():
@@ -275,6 +305,7 @@ Retino_model = Retino_model.to(device)
 
 # Model Summary for CNN_Retino
 summary(Retino_model, input_size=(3, 255, 255),device=device.type)
+
 loss_func = nn.NLLLoss(reduction="sum")
 opt = optim.Adam(Retino_model.parameters(), lr=1e-4)
 lr_scheduler = ReduceLROnPlateau(opt, mode='min',factor=0.5, patience=20,verbose=1)
@@ -283,7 +314,7 @@ lr_scheduler = ReduceLROnPlateau(opt, mode='min',factor=0.5, patience=20,verbose
 
 params_train={
  "train": train_loader,"val": val_loader,
- "epochs": 300,
+ "epochs": 100,
  "optimiser": optim.Adam(Retino_model.parameters(),lr=1e-4),
  "lr_change": ReduceLROnPlateau(opt, mode='min',factor=0.5, patience=20,verbose=1),
  "f_loss": nn.NLLLoss(reduction="sum"),
@@ -297,6 +328,14 @@ model,loss_hist_m,metric_hist_m = train_val(Retino_model,params_train)
 epochs=params_train["epochs"]
 fig,ax = plt.subplots(1,2,figsize=(12,5))
 
+sns.lineplot(x=[*range(1,epochs+1)],y=loss_hist_m["train"],ax=ax[0],label='loss_hist["train"]')
+sns.lineplot(x=[*range(1,epochs+1)],y=loss_hist_m["val"],ax=ax[0],label='loss_hist["val"]')
+sns.lineplot(x=[*range(1,epochs+1)],y=metric_hist_m["train"],ax=ax[1],label='Acc_hist["train"]')
+sns.lineplot(x=[*range(1,epochs+1)],y=metric_hist_m["val"],ax=ax[1],label='Acc_hist["val"]')
+
+plt.show()
+
+
 # Classification Report for Retinopathy Classification Model based on Train Set
 y_true, y_pred = ture_and_pred_data(train_loader, Retino_model)
 print(classification_report(y_true, y_pred), '\n\n')
@@ -305,3 +344,26 @@ y_true, y_pred = ture_and_pred_data(val_loader, Retino_model)
 print(classification_report(y_true, y_pred), '\n\n')
 
 torch.save(Retino_model, "Retino_model.pt")
+
+# Load the pretrained model
+model = torch.load("Retino_model.pt")
+
+# Move the model to the GPU device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+
+# Iterate over the test loader for prediction
+with torch.no_grad():
+    for images, _ in test_loader:
+        
+        images = images.to(device)
+        output = model(images)
+        probabilities = torch.softmax(output, dim=1)
+        predicted_classes = torch.argmax(probabilities, dim=1)
+        
+        for predicted_class in predicted_classes:
+            print("Predicted class:", predicted_class.item())
+
+## Classification Report for Retinopathy Classification Model based on Test set
+y_true, y_pred = ture_and_pred_data(test_loader, model)
+print(classification_report(y_true, y_pred), '\n\n')
